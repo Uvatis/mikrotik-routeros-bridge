@@ -66,8 +66,16 @@ func commandHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// We only extract the Map (useful content) from the "!re" type responses
+	var results []map[string]string
+	for _, re := range reply.Re {
+		if re.Word == "!re" && re.Map != nil {
+			results = append(results, re.Map)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(reply.Re)
+	json.NewEncoder(w).Encode(results)
 }
 
 func main() {
