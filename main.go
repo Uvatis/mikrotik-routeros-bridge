@@ -42,9 +42,38 @@ func connectHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// commandHandler handles HTTP requests to execute commands on a MikroTik router and returns the response in JSON format.
+// It expects a JSON payload containing connection details (host, port, user, password) and a command to execute.
+// In case of errors (e.g., invalid JSON, connection failure, command failure), it responds with an appropriate HTTP status code.
+func commandHandler(w http.ResponseWriter, r *http.Request) {
+	var req MikroTikRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	address := req.Host + ":" + req.Port
+	conn, err := routeros.Dial(address, req.User, req.Password)
+	if err != nil {
+		http.Error(w, "connection failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer conn.Close()
+
+	reply, err := conn.Run(req.Command)
+	if err != nil {
+		http.Error(w, "command failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(reply.Re)
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/connect", connectHandler)
+	mux.HandleFunc("/command", commandHandler)
 
 	server := &http.Server{
 		Addr:         ":8080",
