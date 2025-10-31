@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -11,22 +12,27 @@ import (
 
 // MikroTikRequest represents the input parameters required for interacting with a MikroTik router through an HTTP request.
 type MikroTikRequest struct {
-	Host     string `json:"host"`
-	Port     string `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	Command  string `json:"command"`
+	Host     string            `json:"host"`
+	Port     string            `json:"port"`
+	User     string            `json:"user"`
+	Password string            `json:"password"`
+	Command  string            `json:"command"`
+	Payload  map[string]string `json:"payload,omitempty"`
 }
 
 // connectHandler handles HTTP requests to establish a connection to a MikroTik router using provided JSON payload.
 // It expects a JSON containing host, port, user, and password to initiate the connection.
 // Responds with a JSON confirming the connection status or an error with the appropriate HTTP status code.
 func connectHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("Attempting to connect to MikroTik router...")
 	var req MikroTikRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errMsg := fmt.Sprintf("JSON decode error: %v", err)
+		log.Println(errMsg)
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	log.Printf("Connection requested - Host: %s, Port: %s, User: %s", req.Host, req.Port, req.User)
 
 	address := req.Host + ":" + req.Port
 	conn, err := routeros.Dial(address, req.User, req.Password)
@@ -37,6 +43,7 @@ func connectHandler(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	w.Header().Set("Content-Type", "application/json")
+	log.Println("Sending successful connection response")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "connected",
 	})
@@ -44,13 +51,17 @@ func connectHandler(w http.ResponseWriter, r *http.Request) {
 
 // commandHandler handles HTTP requests to execute commands on a MikroTik router and returns the response in JSON format.
 // It expects a JSON payload containing connection details (host, port, user, password) and a command to execute.
-// In case of errors (e.g., invalid JSON, connection failure, command failure), it responds with an appropriate HTTP status code.
+// In case of errors (e.g., invalid JSON, connection failure, command failure), it responds with an appropriate HTTP status code
 func commandHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("Starting request processing")
 	var req MikroTikRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errMsg := fmt.Sprintf("JSON decode error: %v", err)
+		log.Println(errMsg)
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	log.Printf("Request received - Command: %s, Host: %s, Port: %s", req.Command, req.Host, req.Port)
 
 	address := req.Host + ":" + req.Port
 	conn, err := routeros.Dial(address, req.User, req.Password)
@@ -60,13 +71,28 @@ func commandHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	reply, err := conn.Run(req.Command)
+	var reply *routeros.Reply
+	if len(req.Payload) > 0 {
+		// Commande avec payload
+		args := []string{req.Command}
+		for key, value := range req.Payload {
+			args = append(args, "="+key+"="+value)
+		}
+		log.Printf("Executing command with arguments: %v", args)
+		reply, err = conn.RunArgs(args)
+	} else {
+		// Commande simple sans arguments
+		log.Printf("Executing simple command: %s", req.Command)
+		reply, err = conn.Run(req.Command)
+	}
+
 	if err != nil {
+		errMsg := fmt.Sprintf("Command execution failed: %v", err)
+		log.Println(errMsg)
 		http.Error(w, "command failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// We only extract the Map (useful content) from the "!re" type responses
 	var results []map[string]string
 	for _, re := range reply.Re {
 		if re.Word == "!re" && re.Map != nil {
@@ -75,14 +101,20 @@ func commandHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	if len(results) > 0 {
+		log.Printf("Command executed successfully, %d results returned", len(results))
+		json.NewEncoder(w).Encode(results)
+	} else {
+		log.Println("Command executed successfully, no results")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}
+	log.Println("Request processing completed")
 }
 
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/connect", connectHandler)
 	mux.HandleFunc("/command", commandHandler)
-
 	server := &http.Server{
 		Addr:         ":8080",
 		Handler:      mux,
@@ -90,6 +122,7 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	log.Println("MikroTik bridge running on port 8080")
+	log.Println("Starting MikroTik Bridge server...")
+	log.Printf("Server listening on port %s", server.Addr)
 	log.Fatal(server.ListenAndServe())
 }
