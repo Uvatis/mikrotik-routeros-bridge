@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-routeros/routeros"
+	"github.com/go-routeros/routeros/v3"
 )
 
 // MikroTikRequest represents the input parameters required for interacting with a MikroTik router through an HTTP request.
