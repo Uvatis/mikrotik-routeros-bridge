@@ -1,0 +1,12 @@
+services:
+  mikrotik-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mikrotik-bridge:latest
+    container_name: mikrotik-bridge
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080

@@ -11,7 +11,7 @@ RUN go mod download
 COPY . .
 
 # Static compilation
-RUN CGO_ENABLED=0 GOOS=linux go build -o mikrotik-bridge .
+RUN CGO_ENABLED=0 GOOS=linux go build -o mikrotik-routeros-bridge .
 
 # ---------- Runtime Stage ----------
 FROM alpine:3.20
@@ -19,11 +19,11 @@ FROM alpine:3.20
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /app/mikrotik-bridge .
+COPY --from=builder /app/mikrotik-routeros-bridge .
 
 # Expose the port used by the Go service
 EXPOSE 8080
 
 # Startup command
-ENTRYPOINT ["./mikrotik-bridge"]
+ENTRYPOINT ["./mikrotik-routeros-bridge"]
 

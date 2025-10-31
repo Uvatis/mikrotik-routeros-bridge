@@ -1,4 +1,4 @@
-module uvatis/mikrotik-bridge
+module uvatis/mikrotik-routeros-bridge
 
 go 1.21
 
