@@ -53,43 +53,33 @@ func connectHandler(w http.ResponseWriter, r *http.Request) {
 // It expects a JSON payload containing connection details (host, port, user, password) and a command to execute.
 // In case of errors (e.g., invalid JSON, connection failure, command failure), it responds with an appropriate HTTP status code
 func commandHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Starting request processing")
 	var req MikroTikRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errMsg := fmt.Sprintf("JSON decode error: %v", err)
-		log.Println(errMsg)
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		log.Printf("[ERROR] invalid JSON: %v", err)
 		return
 	}
-	log.Printf("Request received - Command: %s, Host: %s, Port: %s", req.Command, req.Host, req.Port)
 
 	address := req.Host + ":" + req.Port
 	conn, err := routeros.Dial(address, req.User, req.Password)
 	if err != nil {
-		http.Error(w, "connection failed: "+err.Error(), http.StatusBadGateway)
+		http.Error(w, "connection failed", http.StatusBadGateway)
+		log.Printf("[ERROR] connection to %s failed: %v", address, err)
 		return
 	}
 	defer conn.Close()
 
 	var reply *routeros.Reply
 	if len(req.Payload) > 0 {
-		// Commande avec payload
-		args := []string{req.Command}
-		for key, value := range req.Payload {
-			args = append(args, "="+key+"="+value)
-		}
-		log.Printf("Executing command with arguments: %v", args)
-		reply, err = conn.RunArgs(args)
+		reply, err = conn.RunArgs(buildArgs(req.Command, req.Payload))
 	} else {
-		// Commande simple sans arguments
-		log.Printf("Executing simple command: %s", req.Command)
 		reply, err = conn.Run(req.Command)
 	}
 
 	if err != nil {
-		errMsg := fmt.Sprintf("Command execution failed: %v", err)
-		log.Println(errMsg)
-		http.Error(w, "command failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "command failed", http.StatusInternalServerError)
+		payloadJSON, _ := json.Marshal(req.Payload)
+		log.Printf("[ERROR] command failed: %v | command=%s | payload=%s", err, req.Command, string(payloadJSON))
 		return
 	}
 
@@ -101,14 +91,15 @@ func commandHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if len(results) > 0 {
-		log.Printf("Command executed successfully, %d results returned", len(results))
-		json.NewEncoder(w).Encode(results)
-	} else {
-		log.Println("Command executed successfully, no results")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(results)
+}
+
+func buildArgs(command string, payload map[string]string) []string {
+	args := []string{command}
+	for k, v := range payload {
+		args = append(args, "="+k+"="+v)
 	}
-	log.Println("Request processing completed")
+	return args
 }
 
 func main() {
